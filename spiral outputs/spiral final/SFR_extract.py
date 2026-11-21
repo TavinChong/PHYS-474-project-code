@@ -4,11 +4,11 @@ import matplotlib.pyplot as plt
 from pyro.util import io_pyro
 
 # Physical unit conversions (example Milky Way scaling)
-L0_kpc = 12.0          # 1 code length = 12 kpc
-Sigma0_Msun_pc2 = 100.0 # 1 code density = 100 M_sun / pc^2
-A_KS = 2.5e-4          # M_sun / yr / kpc^2
+L0_kpc = 120.0
+Sigma0_Msun_pc2 = 3.72759 
+A_KS = 2.5e-4    
 N_KS = 1.4
-Sigma_thresh = 10.0    # Threshold in M_sun / pc^2 (0.1 in code units)
+Sigma_thresh = 0.372759
 
 files = sorted(glob.glob("spiral_*.h5"))
 times = []
@@ -19,19 +19,15 @@ for f in files:
     myg = sim.cc_data.grid
     dens = sim.cc_data.get_var("density")
 
-    # Convert density and cell area to physical units
     sigma_gas = dens[myg.ilo:myg.ihi+1, myg.jlo:myg.jhi+1] * Sigma0_Msun_pc2
     dx_kpc = myg.dx * L0_kpc
     dy_kpc = myg.dy * L0_kpc
     cell_area_kpc2 = dx_kpc * dy_kpc
 
-    # Apply Kennicutt-Schmidt law above threshold
     sigma_sfr = np.where(sigma_gas > Sigma_thresh, A_KS * (sigma_gas ** N_KS), 0.0)
 
-    # Total SFR in M_sun / yr
     total_sfr = np.sum(sigma_sfr) * cell_area_kpc2
 
-    # Convert code time to Myr (t0 = L0 / V0)
     t_Myr = sim.cc_data.t * (L0_kpc * 3.086e16 / 220.0) / 3.154e13
     times.append(t_Myr)
     sfr_total.append(total_sfr)
