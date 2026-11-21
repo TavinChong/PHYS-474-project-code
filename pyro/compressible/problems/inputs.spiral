@@ -1,0 +1,51 @@
+[driver]
+max_steps = 10000
+tmax = 25.0
+cfl = 0.4
+
+[compressible]
+grav = 0.0
+riemann = HLLC
+limiter = 2
+
+[eos]
+gamma = 1.6667
+
+[mesh]
+nx = 256
+ny = 256
+xmin = -1.0
+xmax = 1.0
+ymin = -1.0
+ymax = 1.0
+
+xl_boundary = outflow
+xr_boundary = outflow
+yl_boundary = outflow
+yr_boundary = outflow
+
+[io]
+basename = spiral_eeos_
+dt_out = 0.05
+n_out = 200
+
+[spiral]
+dens0 = 1.0
+dens_bg = 1e-3
+r_disk = 0.25
+r_core = 0.05
+v0 = 1.0
+c_s = 0.05
+amp = 0.04
+m = 2
+pitch = 15.0
+omega_p = 1.5
+sfr_thresh = 0.1
+sfr_coeff = 0.015
+sfr_index = 1.4
+sn_eff = 0.1
+sn_spec_ener = 10400.0
+f_return = 0.2
+cool_coeff = 5.0
+c_s_floor = 0.04
+c_s_peak = 0.5
