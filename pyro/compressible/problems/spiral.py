@@ -40,19 +40,16 @@ def galactic_accel(x, y, t, rp):
     r = np.sqrt(r2)
     theta = np.arctan2(y, x)
 
-    # 1. Axisymmetric softened logarithmic halo potential: g_r = -v0^2 * r / (r^2 + r_core^2)
+    # Gravitational velocity curve
     gx = -(v0**2) * x / r2
     gy = -(v0**2) * y / r2
 
-    # 2. Trailing logarithmic spiral perturbation
     if amp > 0.0:
         cot_i = 1.0 / np.tan(pitch_rad)
-        # Taper spiral strength smoothly near center and outer edge
         r_phys = np.sqrt(x**2 + y**2) + 1e-12
         envelope = amp * (r_phys / (r_phys + r_core))**2 * np.exp(-r_phys / 0.8)
         phase = m * (theta - omega_p * t) + m * cot_i * np.log(r / r_core)
 
-        # Acceleration g = -grad(Phi_1) in polar coordinates, then rotated to Cartesian
         dPhi_dr = envelope * (-m * cot_i / r) * np.sin(phase)
         dPhi_dtheta = -envelope * m * np.cos(phase)
 
@@ -88,11 +85,9 @@ def init_data(my_data, rp):
     y = g.y2d
     r = np.sqrt(x**2 + y**2)
 
-    # Exponential disk density + ambient halo floor
     disk_dens = dens0 * np.exp(-r / r_disk)
     dens[:, :] = dens_bg + disk_dens
 
-    # Rotation velocity tapered smoothly at the outer grid boundary (r > 0.75)
     taper = 0.5 * (1.0 - np.tanh((r - 0.75) / 0.1))
     v_circ = (v0 * r / np.sqrt(r**2 + r_core**2)) * taper
     r_safe = np.maximum(r, 1e-12)
@@ -102,8 +97,6 @@ def init_data(my_data, rp):
     xmom[:, :] = dens * vx
     ymom[:, :] = dens * vy
 
-    # Cold disk (c_s = 0.05) + warm low-density ambient halo (c_s_halo = 0.35)
-    # Prevents Mach 20 kinetic-to-internal energy subtraction errors in the outer corners
     c_s_halo = 0.35
     cs_local = c_s + (c_s_halo - c_s) * (dens_bg / dens)
     p = dens * (cs_local**2) / gamma
@@ -120,7 +113,6 @@ def source_terms(myg, U, ivars, rp):
     dens_bg = rp.get_param("spiral.dens_bg")
     c_s_floor = rp.get_param("spiral.c_s_floor")
 
-    # Enforce physical density floor for safe primitive variable recovery
     dens_floor = 0.1 * dens_bg
     dens_safe = np.maximum(dens, dens_floor)
 
@@ -133,13 +125,12 @@ def source_terms(myg, U, ivars, rp):
     p = (gamma - 1.0) * e_int
     cs2 = gamma * p / dens_safe
 
-    # Estimate local CFL time scale dt_est ~ dx / (|v| + c_s)
+    # Estimate CFL time scale
     v_mag = np.sqrt(vx**2 + vy**2) + np.sqrt(cs2) + 1e-6
     dt_est = min(myg.dx, myg.dy) / v_mag
 
     S = myg.scratch_array(nvar=ivars.nvar)
 
-    # 0. Density Floor Replenishment (prevents vacuum cavitation & velocity spikes)
     low_dens_mask = dens < dens_floor
     if np.any(low_dens_mask):
         mass_replenish = np.where(
@@ -147,31 +138,30 @@ def source_terms(myg, U, ivars, rp):
             0.5 * (dens_floor - dens) / np.maximum(dt_est, 1e-8),
             0.0,
         )
-        # Inject replenished gas at the ambient halo sound speed (c_s_halo = 0.35)
+        # Inject replenished gas
         c_s_halo = 0.35
         e_spec_halo = (c_s_halo**2) / (gamma * (gamma - 1.0))
 
         S[:, :, ivars.idens] += mass_replenish
         S[:, :, ivars.iener] += mass_replenish * e_spec_halo
 
-    # 1. Galactic gravitational acceleration
+    # Gravitational acceleration
     gx, gy = galactic_accel(myg.x2d, myg.y2d, 0.0, rp)
 
     S[:, :, ivars.ixmom] += dens_safe * gx
     S[:, :, ivars.iymom] += dens_safe * gy
     S[:, :, ivars.iener] += xmom * gx + ymom * gy
 
-    # 2. Subgrid Star Formation Rate (code units)
+    # Star Formation Rate
     thresh = rp.get_param("spiral.sfr_thresh")
     a_ks = rp.get_param("spiral.sfr_coeff")
     n_ks = rp.get_param("spiral.sfr_index")
 
-    # Only form stars where gas is well above the ambient background
     effective_thresh = np.maximum(thresh, 10.0 * dens_bg)
     sfr = np.where(dens > effective_thresh, a_ks * (dens ** n_ks), 0.0)
     sfr = np.minimum(sfr, 0.05 * dens)
 
-    # 3. Gas Depletion & Mass Return
+    # Gas Depletion
     f_ret = rp.get_param("spiral.f_return")
     net_depletion = (1.0 - f_ret) * sfr
 
@@ -180,15 +170,14 @@ def source_terms(myg, U, ivars, rp):
     S[:, :, ivars.iymom] -= net_depletion * vy
     S[:, :, ivars.iener] -= net_depletion * spec_ener
 
-    # 4. Thermodynamics: Effective EOS vs. Explicit SN Heating + Radiative Cooling
+    # Thermodynamics
     use_eeos = rp.get_param("spiral.use_eeos")
 
     if use_eeos:
-        # 4a. Effective Equation of State (eEOS) Baseline
+        # Effective Equation of State
         gamma_eff = rp.get_param("spiral.gamma_eff")
         r_core = rp.get_param("spiral.r_core")
 
-        # Taper eEOS stiffening inside the central core so central pileup doesn't choke dt
         r_phys = np.sqrt(myg.x2d**2 + myg.y2d**2)
         core_taper = (r_phys**2) / (r_phys**2 + r_core**2)
         eff_index = 1.0 + (gamma_eff - 1.0) * core_taper
@@ -200,19 +189,17 @@ def source_terms(myg, U, ivars, rp):
             p_floor,
         )
 
-        # Cap maximum effective sound speed so CFL timestep stays fast
         cs_max = 0.5
         p_max = dens_safe * (cs_max**2) / gamma
         p_eeos = np.minimum(p_eeos, p_max)
         e_target = p_eeos / (gamma - 1.0)
 
-        # Cool over-pressurized cells faster (0.25) than heating under-pressurized cells (0.05)
         relax_coeff = np.where(e_int > e_target, 0.25, 0.05)
         relax_rate = relax_coeff * (e_target - e_int) / np.maximum(dt_est, 1e-8)
         S[:, :, ivars.iener] += relax_rate
 
     else:
-        # 4b. Explicit Supernova Thermal Energy Injection (capped)
+        # Supernova Thermal Energy
         sn_eff = rp.get_param("spiral.sn_eff")
         sn_spec_ener = rp.get_param("spiral.sn_spec_ener")
         sn_heating = sn_eff * sn_spec_ener * sfr
@@ -221,7 +208,7 @@ def source_terms(myg, U, ivars, rp):
         sn_heating = np.minimum(sn_heating, max_sn_heat)
         S[:, :, ivars.iener] += sn_heating
 
-        # 5. Safe Optically Thin Radiative Cooling with Temperature Floor
+        # Radiative Cooling
         cool_coeff = rp.get_param("spiral.cool_coeff")
         c_s_peak = rp.get_param("spiral.c_s_peak")
 
