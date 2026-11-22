@@ -5,11 +5,11 @@ import matplotlib.pyplot as plt
 from pyro.util import io_pyro
 
 # Physical unit conversions
-L0_kpc = 12.0
-Sigma0_Msun_pc2 = 100.0
+L0_kpc = 120.0
+Sigma0_Msun_pc2 = 3.72759
 A_KS = 2.5e-4
 N_KS = 1.4
-Sigma_thresh = 10.0
+Sigma_thresh = 0.372759
 
 def natural_key(path):
     """Sort filenames numerically (e.g., _2.h5 before _10.h5)."""
